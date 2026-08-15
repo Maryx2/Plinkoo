@@ -154,15 +154,20 @@ $("hostLogin").onclick=async()=>{
     openConsole();await refresh();
   }catch(e){setMsg("loginMsg",e.message)}
 };
-function openConsole(){$("loginView").classList.add("hidden");$("consoleView").classList.remove("hidden");$("roomTop").textContent=auth.code;$("roomCode").textContent=auth.code}
+function openConsole(){
+  if($("loginView")) $("loginView").classList.add("hidden");
+  if($("consoleView")) $("consoleView").classList.remove("hidden");
+  if($("roomTop")) $("roomTop").textContent=auth.code;
+  if($("roomCode")) $("roomCode").textContent=auth.code;
+}
 
 async function refresh(){
   if(!auth.code||!auth.token)return;
   try{
     currentState=await hostReq("/api/host-state");
-    $("showName").textContent=currentState.show.name;
-    $("startingBalls").value=currentState.show.starting_balls;
-    $("ballValue").value=currentState.show.ball_value;
+    if($("showName")) $("showName").textContent=currentState.show.name;
+    if($("startingBalls")) $("startingBalls").value=currentState.show.starting_balls;
+    if($("ballValue")) $("ballValue").value=currentState.show.ball_value;
     renderPrizes(currentState.show.prizes);
     renderPlayers(currentState.players);
   }catch(e){
@@ -394,13 +399,13 @@ async function refreshLive(){
     const active=liveBalls.filter(b=>b.active).length;
     const latest=(j.drops||[]).slice().sort((a,b)=>new Date(b.started_at)-new Date(a.started_at))[0];
 
-    $("liveStatus").textContent=active
+    if($("liveStatus")) $("liveStatus").textContent=active
       ? `${active} live drop${active===1?"":"s"} happening now`
       : latest
         ? `Latest: ${latest.player_name}${latest.settled&&latest.prize!==null?` won ${money(latest.prize)}`:""}`
         : "Waiting for a player to drop a ball…";
   }catch(e){
-    $("liveStatus").textContent="Live connection retrying…";
+    if($("liveStatus")) $("liveStatus").textContent="Live connection retrying…";
   }
 }
 

@@ -67,10 +67,10 @@ async function refresh(){
   if(!session.token)return;
   try{
     state=await post("/api/player-state",{code:session.code,playerToken:session.token});
-    $("who").textContent=state.player.name;
-    $("balls").textContent=state.player.balls;
-    $("cash").textContent=money(state.player.cash);
-    $("ballValueDisplay").textContent=money(state.show.ball_value);
+    if($("who")) $("who").textContent=state.player.name;
+    if($("balls")) $("balls").textContent=state.player.balls;
+    if($("cash")) $("cash").textContent=money(state.player.cash);
+    if($("ballValueDisplay")) $("ballValueDisplay").textContent=money(state.show.ball_value);
   }catch(e){setMsg(e.message)}
 }
 
@@ -127,8 +127,8 @@ async function checkSettledBalls(){
           slot:b.slot
         });
         state.player=j.player;
-        $("cash").textContent=money(state.player.cash);
-        $("balls").textContent=state.player.balls;
+        if($("cash")) $("cash").textContent=money(state.player.cash);
+        if($("balls")) $("balls").textContent=state.player.balls;
         show(`${Number(j.multiplier)}×  +${money(j.prize)}`);
       }catch(e){
         submittedDrops.delete(b.id);
@@ -163,6 +163,7 @@ async function refreshLeaderboard(){
   try{
     const j=await post("/api/live-state",{code:session.code});
     const body=$("playerLeaderBody");
+    if(!body) return;
     body.innerHTML=(j.players||[])
       .slice()
       .sort((a,b)=>Number(b.total_cash)-Number(a.total_cash) || Number(b.session_cash)-Number(a.session_cash))
@@ -177,12 +178,12 @@ async function refreshLeaderboard(){
       ).join("");
     const me=(j.players||[]).find(p=>String(p.id)===String(state?.player?.id));
     if(me){
-      $("totalCash").textContent=money(me.total_cash);
-      $("cash").textContent=money(me.session_cash);
+      if($("totalCash")) $("totalCash").textContent=money(me.total_cash);
+      if($("cash")) $("cash").textContent=money(me.session_cash);
     }
-    $("leaderStatus").textContent="Live · updated just now";
+    if($("leaderStatus")) $("leaderStatus").textContent="Live · updated just now";
   }catch(e){
-    $("leaderStatus").textContent="Leaderboard reconnecting…";
+    if($("leaderStatus")) $("leaderStatus").textContent="Leaderboard reconnecting…";
   }
 }
 
