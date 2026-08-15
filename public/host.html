@@ -80,7 +80,12 @@
 
         <div class="card">
           <div class="label">Live Leaderboard</div>
-          <table><thead><tr><th>#</th><th>Player</th><th>Cash</th><th>Balls</th></tr></thead><tbody id="leaderBody"></tbody></table>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Player</th><th>Session</th><th>Total</th><th>Balls</th></tr>
+            </thead>
+            <tbody id="leaderBody"></tbody>
+          </table>
         </div>
       </aside>
     </div>
@@ -130,13 +135,43 @@ function renderPrizes(vals){
 }
 function renderPlayers(players){
   const sel=$("playerSelect"),old=sel.value;sel.innerHTML="";
-  players.forEach(p=>{const o=document.createElement("option");o.value=p.id;o.textContent=p.name;sel.appendChild(o)});
+  players.forEach(p=>{
+    const o=document.createElement("option");
+    o.value=p.id;
+    o.textContent=p.name;
+    sel.appendChild(o)
+  });
+
   if(old&&players.some(p=>p.id===old))sel.value=old;
   syncPlayerSummary();
-  $("leaderBody").innerHTML=players.slice().sort((a,b)=>Number(b.cash)-Number(a.cash)).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${money(p.cash)}</td><td>${p.balls}</td></tr>`).join("");
+
+  $("leaderBody").innerHTML=players
+    .slice()
+    .sort((a,b)=>Number(b.total_cash)-Number(a.total_cash) || Number(b.session_cash)-Number(a.session_cash))
+    .map((p,i)=>`
+      <tr>
+        <td>${i+1}</td>
+        <td>${esc(p.name)}</td>
+        <td>${money(p.session_cash)}</td>
+        <td><b>${money(p.total_cash)}</b></td>
+        <td>${p.balls}</td>
+      </tr>
+    `).join("");
 }
-function selected(){return currentState?.players.find(p=>p.id===$("playerSelect").value)}
-function syncPlayerSummary(){const p=selected();$("playerSummary").textContent=p?`${p.balls} balls · ${money(p.cash)} · ${p.drops} drops`:"No players have joined yet."}
+
+function selected(){
+  return currentState?.players.find(p=>p.id===$("playerSelect").value)
+}
+
+function syncPlayerSummary(){
+  const p=selected();
+  $("playerSummary").innerHTML=p
+    ? `<b>${esc(p.name)}</b><br>
+       ${p.balls} balls · ${p.drops} drops<br>
+       Session: <b>${money(p.session_cash)}</b><br>
+       Total: <b>${money(p.total_cash)}</b>`
+    : "No players have joined yet.";
+}
 $("playerSelect").onchange=syncPlayerSummary;
 document.querySelectorAll("[data-ball]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,ballsDelta:Number(b.dataset.ball)});setMsg("playerMsg","Balls updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
 document.querySelectorAll("[data-cash]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,cashDelta:Number(b.dataset.cash)});setMsg("playerMsg","Cash updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
@@ -149,39 +184,77 @@ $("bigMoney").onclick=()=>renderPrizes([500,1000,2500,5000,10000,25000,10000,500
 
 let liveBalls=[];
 let liveDropMap=new Map();
+let completedDropIds=new Set();
 let livePrizes=[100,250,500,1000,2500,5000,2500,1000,500,250,100];
+let hostClockOffsetMs=0;
 
 function ensureHostDrop(d){
-  if(!d.physics_seed || !d.started_at)return;
+  if(!d.physics_seed || !d.started_at || completedDropIds.has(d.id))return;
+
   let b=liveDropMap.get(d.id);
+
   if(!b){
+    // Convert the database/server timestamp to the host's local clock.
+    // This avoids jumps/glitches if the host and player device clocks differ.
+    const serverStartedMs=new Date(d.started_at).getTime();
+    const localEquivalentStart=serverStartedMs-hostClockOffsetMs;
+
     b=HighNotesPlinkoPhysics.makeBall({
       id:d.id,
       startX:d.start_x,
       seed:d.physics_seed,
-      startedAt:d.started_at,
+      startedAt:new Date(localEquivalentStart).toISOString(),
       player:d.player_name
     });
-    HighNotesPlinkoPhysics.catchUpToNow(b);
+
+    b.framesSimulated=0;
+    b.dbSettled=!!d.settled;
+    b.dbSlot=d.slot===null?null:Number(d.slot);
+    b.dbPrize=d.prize;
+    b.removalAt=0;
+
+    HighNotesPlinkoPhysics.catchUpToNow(b,1200);
+
     liveDropMap.set(d.id,b);
     liveBalls.push(b);
   }
+
   if(d.settled){
     b.dbSettled=true;
-    b.dbSlot=Number(d.slot);
+    b.dbSlot=d.slot===null?null:Number(d.slot);
     b.dbPrize=d.prize;
+
+    // If the local deterministic simulation is already done, begin the
+    // result linger timer immediately.
+    if(!b.active && !b.removalAt){
+      if(Number.isInteger(b.dbSlot)){
+        b.x=(b.dbSlot+.5)*HighNotesPlinkoPhysics.CONFIG.slotW;
+      }
+      b.finishedAt=b.finishedAt||Date.now();
+      b.removalAt=Date.now()+2500;
+    }
   }
 }
 
 async function refreshLive(){
   if(!auth.code)return;
+
   try{
+    const before=Date.now();
     const j=await post("/api/live-state",{code:auth.code});
+    const after=Date.now();
+
+    // Estimate local/server clock difference using the midpoint of the request.
+    const midpoint=(before+after)/2;
+    hostClockOffsetMs=new Date(j.serverNow).getTime()-midpoint;
+
     livePrizes=j.show.prizes||livePrizes;
+
     for(const d of j.drops||[])ensureHostDrop(d);
 
     const active=liveBalls.filter(b=>b.active).length;
-    const latest=(j.drops||[])[0];
+    const latest=(j.drops||[]).slice().sort((a,b)=>new Date(b.started_at)-new Date(a.started_at))[0];
+
     $("liveStatus").textContent=active
       ? `${active} live drop${active===1?"":"s"} happening now`
       : latest
@@ -194,23 +267,45 @@ async function refreshLive(){
 
 function hostLiveLoop(){
   if(window.HighNotesPlinkoPhysics && $("hostLiveBoard")){
+    const now=Date.now();
+
     for(const b of liveBalls){
-      if(b.active)HighNotesPlinkoPhysics.advanceRealTime(b);
-      if(!b.active && b.dbSettled && Number.isInteger(b.dbSlot)){
-        b.x=(b.dbSlot+.5)*HighNotesPlinkoPhysics.CONFIG.slotW;
+      if(b.active){
+        HighNotesPlinkoPhysics.advanceRealTime(b);
+      }
+
+      if(!b.active && !b.removalAt){
+        // The deterministic host copy naturally reached the bottom.
+        if(b.dbSettled && Number.isInteger(b.dbSlot)){
+          b.x=(b.dbSlot+.5)*HighNotesPlinkoPhysics.CONFIG.slotW;
+        }
+        b.finishedAt=b.finishedAt||now;
+        b.removalAt=now+2500;
       }
     }
-    HighNotesPlinkoPhysics.drawBoard($("hostLiveBoard").getContext("2d"),liveBalls,livePrizes);
 
-    const cutoff=Date.now()-12000;
+    HighNotesPlinkoPhysics.drawBoard(
+      $("hostLiveBoard").getContext("2d"),
+      liveBalls,
+      livePrizes
+    );
+
     liveBalls=liveBalls.filter(b=>{
-      const keep=b.active || b.startedAtMs>cutoff;
-      if(!keep)liveDropMap.delete(b.id);
-      return keep;
+      if(!b.removalAt || now<b.removalAt)return true;
+      liveDropMap.delete(b.id);
+      completedDropIds.add(b.id);
+      return false;
     });
+
+    // Prevent this set from growing forever during a long-running show.
+    if(completedDropIds.size>500){
+      completedDropIds=new Set(Array.from(completedDropIds).slice(-250));
+    }
   }
+
   requestAnimationFrame(hostLiveLoop);
 }
+
 requestAnimationFrame(hostLiveLoop);
 
 if(auth.code&&auth.token){openConsole();refresh();setTimeout(refreshLive,150)}

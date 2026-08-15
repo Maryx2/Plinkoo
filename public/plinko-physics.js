@@ -105,6 +105,7 @@ window.HighNotesPlinkoPhysics = (() => {
       if(b.settleFrames>16){
         b.active=false;
         b.finished=true;
+        b.finishedAt=Date.now();
         b.slot=Math.max(0,Math.min(C.slots-1,Math.floor(b.x/C.slotW)));
       }
     }else b.settleFrames=0;
@@ -166,12 +167,23 @@ window.HighNotesPlinkoPhysics = (() => {
     }
 
     for(const b of balls){
+      // Once a ball has fully stopped, leave it visible for 1.8 seconds,
+      // then fade it during the final 0.7 seconds before removal.
+      let alpha=1;
+      if(b.finishedAt){
+        const age=Date.now()-b.finishedAt;
+        if(age>1800) alpha=Math.max(0,1-((age-1800)/700));
+      }
+
+      ctx.save();
+      ctx.globalAlpha=alpha;
       ctx.beginPath();ctx.arc(b.x,b.y,C.ballR,0,Math.PI*2);
       ctx.fillStyle="#ffd84a";ctx.shadowColor="#ffd84a";ctx.shadowBlur=13;ctx.fill();ctx.shadowBlur=0;
       if(b.player){
         ctx.fillStyle="#fff";ctx.font="800 11px system-ui";ctx.textAlign="center";
         ctx.fillText(b.player,b.x,Math.max(16,b.y-18));
       }
+      ctx.restore();
     }
   }
 

@@ -27,7 +27,8 @@
         <div class="card">
           <div class="label">Contestant</div><div class="big" id="who">—</div>
           <div class="label" style="margin-top:12px">Available Balls</div><div class="big"><span id="balls">0</span> balls</div>
-          <div class="label" style="margin-top:12px">Money Won</div><div class="money" id="cash">$0</div>
+          <div class="label" style="margin-top:12px">Session Winnings</div><div class="money" id="cash">$0</div>
+          <div class="label" style="margin-top:12px">Total Winnings</div><div class="big" id="totalCash">$0</div>
         </div>
         <div class="card">
           <button id="dropBtn" class="primary" style="width:100%;font-size:18px">DROP BALL</button>
@@ -37,7 +38,7 @@
         <div class="card">
           <div class="label">Live Leaderboard</div>
           <table>
-            <thead><tr><th>#</th><th>Player</th><th>Cash</th><th>Balls</th></tr></thead>
+            <thead><tr><th>#</th><th>Player</th><th>Session</th><th>Total</th><th>Balls</th></tr></thead>
             <tbody id="playerLeaderBody"></tbody>
           </table>
           <div class="muted status" id="leaderStatus">Updates automatically.</div>
@@ -132,7 +133,7 @@ async function checkSettledBalls(){
       }
       setTimeout(()=>{
         balls=balls.filter(x=>x.id!==b.id);
-      },1400);
+      },2500);
     }
   }
 }
@@ -159,9 +160,23 @@ async function refreshLeaderboard(){
   try{
     const j=await post("/api/live-state",{code:session.code});
     const body=$("playerLeaderBody");
-    body.innerHTML=(j.players||[]).slice().sort((a,b)=>Number(b.cash)-Number(a.cash)).map((p,i)=>
-      `<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${money(p.cash)}</td><td>${p.balls}</td></tr>`
-    ).join("");
+    body.innerHTML=(j.players||[])
+      .slice()
+      .sort((a,b)=>Number(b.total_cash)-Number(a.total_cash) || Number(b.session_cash)-Number(a.session_cash))
+      .map((p,i)=>
+        `<tr>
+          <td>${i+1}</td>
+          <td>${esc(p.name)}</td>
+          <td>${money(p.session_cash)}</td>
+          <td><b>${money(p.total_cash)}</b></td>
+          <td>${p.balls}</td>
+        </tr>`
+      ).join("");
+    const me=(j.players||[]).find(p=>String(p.id)===String(state?.player?.id));
+    if(me){
+      $("totalCash").textContent=money(me.total_cash);
+      $("cash").textContent=money(me.session_cash);
+    }
     $("leaderStatus").textContent="Live · updated just now";
   }catch(e){
     $("leaderStatus").textContent="Leaderboard reconnecting…";
