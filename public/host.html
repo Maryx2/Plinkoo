@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PLINKO! By High Notes — Host</title><link rel="stylesheet" href="/styles.css"><script src="/live-board.js" defer></script></head>
+<title>PLINKO! By High Notes — Host</title><link rel="stylesheet" href="/styles.css"><script src="/plinko-physics.js" defer></script></head>
 <body>
 <div class="shell">
   <header class="top">
@@ -146,27 +146,72 @@ $("classic").onclick=()=>renderPrizes([100,250,500,1000,2500,5000,2500,1000,500,
 $("bigMoney").onclick=()=>renderPrizes([500,1000,2500,5000,10000,25000,10000,5000,2500,1000,500]);
 
 
-let hostLiveBoard=null;
-let seenLiveDrops=new Set();
+
+let liveBalls=[];
+let liveDropMap=new Map();
+let livePrizes=[100,250,500,1000,2500,5000,2500,1000,500,250,100];
+
+function ensureHostDrop(d){
+  if(!d.physics_seed || !d.started_at)return;
+  let b=liveDropMap.get(d.id);
+  if(!b){
+    b=HighNotesPlinkoPhysics.makeBall({
+      id:d.id,
+      startX:d.start_x,
+      seed:d.physics_seed,
+      startedAt:d.started_at,
+      player:d.player_name
+    });
+    HighNotesPlinkoPhysics.catchUpToNow(b);
+    liveDropMap.set(d.id,b);
+    liveBalls.push(b);
+  }
+  if(d.settled){
+    b.dbSettled=true;
+    b.dbSlot=Number(d.slot);
+    b.dbPrize=d.prize;
+  }
+}
 
 async function refreshLive(){
   if(!auth.code)return;
   try{
     const j=await post("/api/live-state",{code:auth.code});
-    if(!hostLiveBoard && $("hostLiveBoard")) hostLiveBoard=createLiveBoard($("hostLiveBoard"));
-    if(hostLiveBoard) hostLiveBoard.sync(j.drops,j.show.prizes);
+    livePrizes=j.show.prizes||livePrizes;
+    for(const d of j.drops||[])ensureHostDrop(d);
 
-    const unsettled=(j.drops||[]).filter(d=>!d.settled);
+    const active=liveBalls.filter(b=>b.active).length;
     const latest=(j.drops||[])[0];
-    $("liveStatus").textContent=unsettled.length
-      ? `${unsettled.length} live drop${unsettled.length===1?"":"s"} in progress`
+    $("liveStatus").textContent=active
+      ? `${active} live drop${active===1?"":"s"} happening now`
       : latest
         ? `Latest: ${latest.player_name}${latest.settled&&latest.prize!==null?` won ${money(latest.prize)}`:""}`
         : "Waiting for a player to drop a ball…";
   }catch(e){
-    $("liveStatus").textContent="Live game connection retrying…";
+    $("liveStatus").textContent="Live connection retrying…";
   }
 }
+
+function hostLiveLoop(){
+  if(window.HighNotesPlinkoPhysics && $("hostLiveBoard")){
+    for(const b of liveBalls){
+      if(b.active)HighNotesPlinkoPhysics.advanceRealTime(b);
+      if(!b.active && b.dbSettled && Number.isInteger(b.dbSlot)){
+        b.x=(b.dbSlot+.5)*HighNotesPlinkoPhysics.CONFIG.slotW;
+      }
+    }
+    HighNotesPlinkoPhysics.drawBoard($("hostLiveBoard").getContext("2d"),liveBalls,livePrizes);
+
+    const cutoff=Date.now()-12000;
+    liveBalls=liveBalls.filter(b=>{
+      const keep=b.active || b.startedAtMs>cutoff;
+      if(!keep)liveDropMap.delete(b.id);
+      return keep;
+    });
+  }
+  requestAnimationFrame(hostLiveLoop);
+}
+requestAnimationFrame(hostLiveLoop);
 
 if(auth.code&&auth.token){openConsole();refresh();setTimeout(refreshLive,150)}
 setInterval(()=>{if(!document.hidden&&auth.token)refresh()},2000);

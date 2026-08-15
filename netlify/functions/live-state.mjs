@@ -11,7 +11,7 @@ export default async req=>{
 
     const drops=await sb(
       `plinko_drops?show_id=eq.${s.id}`+
-      `&select=id,player_id,settled,slot,prize,start_x,started_at`+
+      `&select=id,player_id,settled,slot,prize,start_x,started_at,physics_seed`+
       `&order=started_at.desc&limit=12`
     );
 

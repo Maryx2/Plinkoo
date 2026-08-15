@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PLINKO! By High Notes — Player</title><link rel="stylesheet" href="/styles.css"></head>
+<title>PLINKO! By High Notes — Player</title><link rel="stylesheet" href="/styles.css"><script src="/plinko-physics.js"></script></head>
 <body>
 <div class="shell">
   <header class="top">
@@ -70,16 +70,11 @@ async function refresh(){
   }catch(e){setMsg(e.message)}
 }
 
-const c=$("c"),ctx=c.getContext("2d"),W=c.width,H=c.height;
-const rows=12,pegR=6,ballR=11,topY=135,rowGap=43,slotTop=702,slots=11,slotW=W/slots;
-const pegWallMargin=24,pegGap=(W-(pegWallMargin*2))/12,dropMinX=pegWallMargin+ballR+4,dropMaxX=W-dropMinX;
-let pegs=[],balls=[],dropX=W/2;
-function build(){
-  for(let r=0;r<rows;r++){const y=topY+r*rowGap;
-    if(r%2===0){for(let i=0;i<=12;i++)pegs.push({x:pegWallMargin+i*pegGap,y})}
-    else{for(let i=0;i<12;i++)pegs.push({x:pegWallMargin+pegGap/2+i*pegGap,y});pegs.push({x:pegWallMargin,y},{x:W-pegWallMargin,y})}
-  }
-} build();
+const c=$("c"),ctx=c.getContext("2d");
+const PC=HighNotesPlinkoPhysics.CONFIG;
+const W=PC.W,H=PC.H,slotW=PC.slotW,slots=PC.slots;
+const dropMinX=PC.dropMinX,dropMaxX=PC.dropMaxX;
+let balls=[],dropX=W/2;
 
 async function startDrop(x=dropX){
   if(busy)return;
@@ -90,7 +85,15 @@ async function startDrop(x=dropX){
     const normalizedStart=Math.max(0,Math.min(1,(x-dropMinX)/(dropMaxX-dropMinX)));
     const j=await post("/api/player-drop",{code:session.code,playerToken:session.token,startX:normalizedStart});
     state.player=j.player;$("balls").textContent=state.player.balls;
-    balls.push({id:j.dropId,x:Math.max(dropMinX,Math.min(dropMaxX,x)),y:55,vx:(Math.random()-.5)*.7,vy:.15,active:true,settleFrames:0});
+    const b=HighNotesPlinkoPhysics.makeBall({
+      id:j.dropId,
+      startX:j.startX,
+      seed:j.physicsSeed,
+      startedAt:j.startedAt,
+      player:state.player.name
+    });
+    b.framesSimulated=0;
+    balls.push(b);
     setMsg("Ball dropped — good luck!",true)
   }catch(e){setMsg(e.message)}
   finally{busy=false}
@@ -105,35 +108,45 @@ async function settle(b){
   setTimeout(()=>{const i=balls.indexOf(b);if(i>=0)balls.splice(i,1)},900)
 }
 function show(t){const e=$("toast");e.textContent=t;e.style.color="#ffd84a";e.classList.remove("show");void e.offsetWidth;e.classList.add("show")}
-function collide(b,cx,cy,r,bounce=.62){
-  const dx=b.x-cx,dy=b.y-cy,min=ballR+r,d2=dx*dx+dy*dy;if(d2>=min*min||d2<.0001)return false;
-  const d=Math.sqrt(d2),nx=dx/d,ny=dy/d,o=min-d;b.x+=nx*o;b.y+=ny*o;
-  const rel=b.vx*nx+b.vy*ny;if(rel<0){b.vx-=(1+bounce)*rel*nx;b.vy-=(1+bounce)*rel*ny}return true
-}
-function physics(){
-  for(const b of balls){if(!b.active)continue;b.vy+=.285;b.vx*=.9985;b.x+=b.vx;b.y+=b.vy;
-    const left=pegWallMargin-8,right=W-pegWallMargin+8;
-    if(b.x-ballR<left){b.x=left+ballR;b.vx=Math.abs(b.vx)*.68}
-    if(b.x+ballR>right){b.x=right-ballR;b.vx=-Math.abs(b.vx)*.68}
-    for(const p of pegs)if(collide(b,p.x,p.y,pegR,.58))b.vx+=(Math.random()-.5)*.16;
-    if(b.y>slotTop-42){for(let i=1;i<slots;i++){const x=i*slotW;collide(b,x,slotTop+2,6,.72);
-      if(b.y+ballR>slotTop+4&&b.y-ballR<H-25){const dx=b.x-x;if(Math.abs(dx)<ballR+2){b.x=x+(dx<0?-(ballR+2):(ballR+2));b.vx=(dx<0?-1:1)*Math.max(.35,Math.abs(b.vx)*.62);if(b.vy>1.2&&b.y<slotTop+32)b.vy*=-.18}}}}
-    const floor=H-35;if(b.y+ballR>=floor){b.y=floor-ballR;if(Math.abs(b.vy)>.9){b.vy=-Math.abs(b.vy)*.28;b.vx*=.88}else{b.vy=0;b.vx*=.90}
-      if(Math.abs(b.vx)<.16&&Math.abs(b.vy)<.16)b.settleFrames++;else b.settleFrames=0;if(b.settleFrames>16)settle(b)
-    }else b.settleFrames=0
+
+const submittedDrops=new Set();
+
+async function checkSettledBalls(){
+  for(const b of balls){
+    if(b.finished && !submittedDrops.has(b.id)){
+      submittedDrops.add(b.id);
+      try{
+        const j=await post("/api/player-settle",{
+          code:session.code,
+          playerToken:session.token,
+          dropId:b.id,
+          slot:b.slot
+        });
+        state.player=j.player;
+        $("cash").textContent=money(state.player.cash);
+        $("balls").textContent=state.player.balls;
+        show("+"+money(j.prize));
+      }catch(e){
+        submittedDrops.delete(b.id);
+        setMsg(e.message);
+      }
+      setTimeout(()=>{
+        balls=balls.filter(x=>x.id!==b.id);
+      },1400);
+    }
   }
 }
-function draw(){
-  ctx.clearRect(0,0,W,H);const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,"#12183d");bg.addColorStop(1,"#070a18");ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle="#ffe46d88";ctx.setLineDash([5,8]);ctx.beginPath();ctx.moveTo(dropX,20);ctx.lineTo(dropX,95);ctx.stroke();ctx.setLineDash([]);
-  ctx.strokeStyle="#dce6ff66";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(pegWallMargin-8,topY-26);ctx.lineTo(pegWallMargin-8,slotTop+5);ctx.moveTo(W-pegWallMargin+8,topY-26);ctx.lineTo(W-pegWallMargin+8,slotTop+5);ctx.stroke();ctx.lineWidth=1;
-  for(const p of pegs){ctx.beginPath();ctx.arc(p.x,p.y,pegR,0,Math.PI*2);ctx.fillStyle="#eaf0ff";ctx.shadowColor="#9eb8ff";ctx.shadowBlur=7;ctx.fill();ctx.shadowBlur=0}
-  const prizes=state?.show?.prizes||[100,250,500,1000,2500,5000,2500,1000,500,250,100];
-  for(let i=0;i<slots;i++){const x=i*slotW,pr=Number(prizes[i]||0);ctx.fillStyle=pr>=2500?"#ffd84a33":pr>=1000?"#74a7ff20":"#ffffff10";ctx.fillRect(x+3,slotTop+8,slotW-6,70);ctx.fillStyle=pr>=2500?"#ffe36b":"#fff";ctx.font="900 15px system-ui";ctx.textAlign="center";ctx.fillText(money(pr),x+slotW/2,slotTop+39)}
-  for(let i=0;i<=slots;i++){const x=i*slotW;ctx.fillStyle="#ffffff55";ctx.fillRect(x-1.5,slotTop+4,3,H-slotTop-4);if(i>0&&i<slots){ctx.beginPath();ctx.arc(x,slotTop+2,6,0,Math.PI*2);ctx.fillStyle="#dce6ff";ctx.fill()}}
-  for(const b of balls){ctx.beginPath();ctx.arc(b.x,b.y,ballR,0,Math.PI*2);ctx.fillStyle="#ffd84a";ctx.shadowColor="#ffd84a";ctx.shadowBlur=13;ctx.fill();ctx.shadowBlur=0}
+
+function loop(){
+  for(const b of balls){
+    if(b.active)HighNotesPlinkoPhysics.advanceRealTime(b);
+  }
+  HighNotesPlinkoPhysics.drawBoard(ctx,balls,state?.show?.prizes);
+  checkSettledBalls();
+  requestAnimationFrame(loop);
 }
-function loop(){physics();draw();requestAnimationFrame(loop)}loop();
+loop();
+
 function pt(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
 c.addEventListener("pointermove",e=>dropX=Math.max(dropMinX,Math.min(dropMaxX,pt(e).x)));
 c.addEventListener("pointerdown",e=>{dropX=Math.max(dropMinX,Math.min(dropMaxX,pt(e).x));startDrop(dropX)});
