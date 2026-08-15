@@ -128,10 +128,18 @@ async function checkSettledBalls(){
           slot:b.slot
         });
         state.player=j.player;
+        if(j.multiplier===undefined || j.multiplier===null || !Number.isFinite(Number(j.multiplier))){
+          j.multiplier=safeNum(state?.show?.prizes?.[b.slot],0);
+        }
         if($("cash")) $("cash").textContent=money(state.player.cash);
         if($("balls")) $("balls").textContent=state.player.balls;
-        const mult=safeNum(j.multiplier,0);
-        show(`${Number.isInteger(mult)?mult:Math.round(mult*100)/100}×  +${money(j.prize)}`);
+        // Prefer the server-returned multiplier. If an older database function
+        // does not return it yet, use the actual multiplier from the slot the
+        // ball physically landed in instead of displaying 0×.
+        const slotMultiplier=safeNum(state?.show?.prizes?.[b.slot],0);
+        const mult=safeNum(j.multiplier,slotMultiplier);
+        const shownMult=Number.isInteger(mult)?mult:Math.round(mult*100)/100;
+        show(`${shownMult}×  +${money(j.prize)}`);
       }catch(e){
         submittedDrops.delete(b.id);
         setMsg(e.message);
