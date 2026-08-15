@@ -60,3 +60,14 @@ th{font-size:10px;text-transform:uppercase;color:var(--muted)}
 hr{border:0;border-top:1px solid var(--line);margin:13px 0}
 @media(max-width:900px){.grid,.adminGrid{grid-template-columns:1fr}.prizeGrid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:600px){.choiceGrid{grid-template-columns:1fr}.prizeGrid{grid-template-columns:repeat(2,1fr)}.stats{display:grid;grid-template-columns:1fr 1fr;width:100%}}
+
+#playerSelect{
+  min-height:150px;
+  overflow:auto;
+}
+#playerSelect option{
+  padding:8px 10px;
+}
+#playerEditor .card{
+  border-radius:12px;
+}

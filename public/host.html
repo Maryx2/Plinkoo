@@ -64,17 +64,49 @@
         </div>
 
         <div class="card">
-          <div class="label">Contestant Controls</div>
-          <select id="playerSelect"></select>
-          <div id="playerSummary" class="muted status"></div>
-          <div class="label" style="margin-top:10px">Balls</div>
-          <div class="quickGrid">
-            <button data-ball="-5">−5</button><button data-ball="-1">−1</button><button data-ball="1">+1</button><button data-ball="5">+5</button>
+          <div class="top" style="align-items:end">
+            <div>
+              <div class="label">Contestant Editor</div>
+              <div class="big" style="font-size:22px">Quick Player Controls</div>
+            </div>
           </div>
-          <div class="label" style="margin-top:10px">Cash</div>
-          <div class="quickGrid">
-            <button data-cash="-500">−$500</button><button data-cash="-100">−$100</button><button data-cash="100">+$100</button><button data-cash="500">+$500</button>
+
+          <input id="playerSearch" placeholder="Search contestant…" style="margin-top:10px">
+          <select id="playerSelect" size="6" style="margin-top:8px"></select>
+
+          <div id="playerEditor" class="hidden" style="margin-top:12px">
+            <div id="playerSummary" class="card" style="padding:10px;background:#080d20"></div>
+
+            <div class="label" style="margin-top:12px">Balls</div>
+            <div class="quickGrid">
+              <button data-ball="-5">−5</button>
+              <button data-ball="-1">−1</button>
+              <button data-ball="1">+1</button>
+              <button data-ball="5">+5</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <input id="setBallsInput" type="number" min="0" placeholder="Set balls">
+              <button id="setBallsExact">Set</button>
+            </div>
+
+            <div class="label" style="margin-top:12px">Session Cash</div>
+            <div class="quickGrid">
+              <button data-cash="-500">−$500</button>
+              <button data-cash="-100">−$100</button>
+              <button data-cash="100">+$100</button>
+              <button data-cash="500">+$500</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <input id="setCashInput" type="number" min="0" step="0.01" placeholder="Set session cash">
+              <button id="setCashExact">Set</button>
+            </div>
+
+            <div class="row" style="margin-top:10px">
+              <button id="giveOneBall" class="primary">Give 1 Ball</button>
+              <button id="zeroPlayer" class="danger">Zero Session</button>
+            </div>
           </div>
+
           <div id="playerMsg" class="muted status"></div>
         </div>
 
@@ -134,15 +166,23 @@ function renderPrizes(vals){
   vals.forEach((v,i)=>{const d=document.createElement("div");d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="50" value="${Number(v)}">`;g.appendChild(d)})
 }
 function renderPlayers(players){
-  const sel=$("playerSelect"),old=sel.value;sel.innerHTML="";
-  players.forEach(p=>{
+  const sel=$("playerSelect");
+  const search=($("playerSearch")?.value||"").trim().toLowerCase();
+  const old=sel.value;
+
+  const filtered=players.filter(p=>!search || p.name.toLowerCase().includes(search));
+
+  sel.innerHTML="";
+  filtered.forEach(p=>{
     const o=document.createElement("option");
     o.value=p.id;
-    o.textContent=p.name;
-    sel.appendChild(o)
+    o.textContent=`${p.name} — ${money(p.session_cash)} / ${p.balls} balls`;
+    sel.appendChild(o);
   });
 
-  if(old&&players.some(p=>p.id===old))sel.value=old;
+  if(old&&filtered.some(p=>p.id===old))sel.value=old;
+  else if(filtered.length)sel.value=filtered[0].id;
+
   syncPlayerSummary();
 
   $("leaderBody").innerHTML=players
@@ -165,16 +205,97 @@ function selected(){
 
 function syncPlayerSummary(){
   const p=selected();
-  $("playerSummary").innerHTML=p
-    ? `<b>${esc(p.name)}</b><br>
-       ${p.balls} balls · ${p.drops} drops<br>
-       Session: <b>${money(p.session_cash)}</b><br>
-       Total: <b>${money(p.total_cash)}</b>`
-    : "No players have joined yet.";
+  const editor=$("playerEditor");
+
+  if(!p){
+    editor.classList.add("hidden");
+    return;
+  }
+
+  editor.classList.remove("hidden");
+
+  $("playerSummary").innerHTML=`
+    <div style="font-size:20px;font-weight:950">${esc(p.name)}</div>
+    <div class="muted" style="margin-top:5px">
+      Balls: <b>${p.balls}</b> · Drops: <b>${p.drops}</b>
+    </div>
+    <div style="margin-top:6px">
+      Session: <b style="color:var(--green)">${money(p.session_cash)}</b><br>
+      Total: <b style="color:var(--gold)">${money(p.total_cash)}</b>
+    </div>
+  `;
+
+  $("setBallsInput").value=p.balls;
+  $("setCashInput").value=p.session_cash;
 }
+
 $("playerSelect").onchange=syncPlayerSummary;
-document.querySelectorAll("[data-ball]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,ballsDelta:Number(b.dataset.ball)});setMsg("playerMsg","Balls updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
-document.querySelectorAll("[data-cash]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,cashDelta:Number(b.dataset.cash)});setMsg("playerMsg","Cash updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
+
+$("playerSearch").oninput=()=>{
+  if(currentState)renderPlayers(currentState.players);
+};
+
+document.querySelectorAll("[data-ball]").forEach(b=>b.onclick=async()=>{
+  const p=selected();if(!p)return;
+  try{
+    await hostReq("/api/host-player",{playerId:p.id,ballsDelta:Number(b.dataset.ball)});
+    setMsg("playerMsg","Balls updated.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+});
+
+document.querySelectorAll("[data-cash]").forEach(b=>b.onclick=async()=>{
+  const p=selected();if(!p)return;
+  try{
+    await hostReq("/api/host-player",{playerId:p.id,cashDelta:Number(b.dataset.cash)});
+    setMsg("playerMsg","Session cash updated.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+});
+
+$("setBallsExact").onclick=async()=>{
+  const p=selected();if(!p)return;
+  try{
+    await hostReq("/api/host-player",{
+      playerId:p.id,
+      setBalls:Math.max(0,Math.floor(Number($("setBallsInput").value)||0))
+    });
+    setMsg("playerMsg","Exact ball count saved.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+};
+
+$("setCashExact").onclick=async()=>{
+  const p=selected();if(!p)return;
+  try{
+    await hostReq("/api/host-player",{
+      playerId:p.id,
+      setCash:Math.max(0,Number($("setCashInput").value)||0)
+    });
+    setMsg("playerMsg","Exact session cash saved.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+};
+
+$("giveOneBall").onclick=async()=>{
+  const p=selected();if(!p)return;
+  try{
+    await hostReq("/api/host-player",{playerId:p.id,ballsDelta:1});
+    setMsg("playerMsg","1 ball given.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+};
+
+$("zeroPlayer").onclick=async()=>{
+  const p=selected();if(!p)return;
+  if(!confirm(`Reset ${p.name}'s current session cash and drop count to zero?`))return;
+  try{
+    await hostReq("/api/host-player",{playerId:p.id,zeroSession:true});
+    setMsg("playerMsg","Current session reset.",true);
+    await refresh();
+  }catch(e){setMsg("playerMsg",e.message)}
+};
+
 $("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>Math.max(0,Number($("prize_"+i).value)||0));await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Prize board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
 $("saveStart").onclick=async()=>{try{await hostReq("/api/host-settings",{startingBalls:Math.max(0,Math.floor(Number($("startingBalls").value)||0))});await refresh()}catch(e){alert(e.message)}};
 $("classic").onclick=()=>renderPrizes([100,250,500,1000,2500,5000,2500,1000,500,250,100]);
