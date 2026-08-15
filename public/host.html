@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PLINKO! By High Notes — Host</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div><div class="brand-kicker">HIGH NOTES PRESENTS · HOST</div><h1><b>PLINKO!</b> <span style="font-size:.42em;color:var(--muted)">By High Notes</span></h1></div>
+    <div class="stats"><a href="/" class="pill" style="text-decoration:none">← Home</a><div class="pill">Room <b id="roomTop">—</b></div></div>
+  </header>
+
+  <section id="loginView" class="adminGrid" style="margin-top:18px">
+    <div class="card">
+      <div class="label">Create a New Show</div>
+      <input id="newShowName" placeholder="Show name" value="PLINKO! By High Notes">
+      <input id="newPin" type="password" placeholder="Host PIN" style="margin-top:8px">
+      <button id="createShow" class="primary" style="width:100%;margin-top:8px">Create Show</button>
+      <div id="createMsg" class="muted status"></div>
+    </div>
+    <div class="card">
+      <div class="label">Open Existing Show</div>
+      <input id="loginCode" maxlength="6" placeholder="Room code">
+      <input id="loginPin" type="password" placeholder="Host PIN" style="margin-top:8px">
+      <button id="hostLogin" style="width:100%;margin-top:8px">Open Host Console</button>
+      <div id="loginMsg" class="muted status"></div>
+    </div>
+  </section>
+
+  <section id="consoleView" class="hidden">
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="top">
+            <div><div class="label">Live Room Code</div><div class="code" id="roomCode">------</div></div>
+            <div style="text-align:right"><div class="label">Show</div><div class="big" id="showName">—</div></div>
+          </div>
+          <div class="muted" style="margin-top:8px">Players go to <b>/player.html</b> and enter this room code.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="top"><div><div class="label">Prize Board</div><div class="big">Cash Values</div></div>
+            <div class="row" style="flex:0 1 300px"><button id="classic" class="small">Classic</button><button id="bigMoney" class="small">Big Money</button></div>
+          </div>
+          <div id="prizeGrid" class="prizeGrid" style="margin-top:12px"></div>
+          <button id="saveSettings" class="primary" style="width:100%;margin-top:10px">Save Prize Board</button>
+          <div id="settingsMsg" class="muted status"></div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="card">
+          <div class="label">Show Settings</div>
+          <label class="muted">Starting balls for new players</label>
+          <div class="row" style="margin-top:6px"><input id="startingBalls" type="number" min="0"><button id="saveStart">Save</button></div>
+        </div>
+
+        <div class="card">
+          <div class="label">Contestant Controls</div>
+          <select id="playerSelect"></select>
+          <div id="playerSummary" class="muted status"></div>
+          <div class="label" style="margin-top:10px">Balls</div>
+          <div class="quickGrid">
+            <button data-ball="-5">−5</button><button data-ball="-1">−1</button><button data-ball="1">+1</button><button data-ball="5">+5</button>
+          </div>
+          <div class="label" style="margin-top:10px">Cash</div>
+          <div class="quickGrid">
+            <button data-cash="-500">−$500</button><button data-cash="-100">−$100</button><button data-cash="100">+$100</button><button data-cash="500">+$500</button>
+          </div>
+          <div id="playerMsg" class="muted status"></div>
+        </div>
+
+        <div class="card">
+          <div class="label">Live Leaderboard</div>
+          <table><thead><tr><th>#</th><th>Player</th><th>Cash</th><th>Balls</th></tr></thead><tbody id="leaderBody"></tbody></table>
+        </div>
+      </aside>
+    </div>
+  </section>
+</div>
+<script>
+let auth={code:localStorage.getItem("plinko_host_code")||"",token:localStorage.getItem("plinko_host_token")||""};
+let currentState=null;
+const $=id=>document.getElementById(id);
+function money(n){return "$"+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2})}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error||"Request failed");return j}
+async function hostReq(url,extra={}){return post(url,{code:auth.code,adminToken:auth.token,...extra})}
+function setMsg(id,text,good=false){$(id).textContent=text;$(id).className="muted status "+(good?"good":"bad")}
+
+$("createShow").onclick=async()=>{
+  try{
+    const j=await post("/api/create-show",{name:$("newShowName").value,pin:$("newPin").value});
+    auth={code:j.code,token:j.adminToken};localStorage.setItem("plinko_host_code",auth.code);localStorage.setItem("plinko_host_token",auth.token);
+    openConsole();await refresh();
+  }catch(e){setMsg("createMsg",e.message)}
+};
+$("hostLogin").onclick=async()=>{
+  try{
+    const j=await post("/api/host-login",{code:$("loginCode").value,pin:$("loginPin").value});
+    auth={code:j.code,token:j.adminToken};localStorage.setItem("plinko_host_code",auth.code);localStorage.setItem("plinko_host_token",auth.token);
+    openConsole();await refresh();
+  }catch(e){setMsg("loginMsg",e.message)}
+};
+function openConsole(){$("loginView").classList.add("hidden");$("consoleView").classList.remove("hidden");$("roomTop").textContent=auth.code;$("roomCode").textContent=auth.code}
+
+async function refresh(){
+  if(!auth.code||!auth.token)return;
+  try{
+    currentState=await hostReq("/api/host-state");
+    $("showName").textContent=currentState.show.name;
+    $("startingBalls").value=currentState.show.starting_balls;
+    renderPrizes(currentState.show.prizes);
+    renderPlayers(currentState.players);
+  }catch(e){
+    if(String(e.message).toLowerCase().includes("authorized")){localStorage.removeItem("plinko_host_token");auth.token="";location.reload()}
+  }
+}
+function renderPrizes(vals){
+  const g=$("prizeGrid");g.innerHTML="";
+  vals.forEach((v,i)=>{const d=document.createElement("div");d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="50" value="${Number(v)}">`;g.appendChild(d)})
+}
+function renderPlayers(players){
+  const sel=$("playerSelect"),old=sel.value;sel.innerHTML="";
+  players.forEach(p=>{const o=document.createElement("option");o.value=p.id;o.textContent=p.name;sel.appendChild(o)});
+  if(old&&players.some(p=>p.id===old))sel.value=old;
+  syncPlayerSummary();
+  $("leaderBody").innerHTML=players.slice().sort((a,b)=>Number(b.cash)-Number(a.cash)).map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${money(p.cash)}</td><td>${p.balls}</td></tr>`).join("");
+}
+function selected(){return currentState?.players.find(p=>p.id===$("playerSelect").value)}
+function syncPlayerSummary(){const p=selected();$("playerSummary").textContent=p?`${p.balls} balls · ${money(p.cash)} · ${p.drops} drops`:"No players have joined yet."}
+$("playerSelect").onchange=syncPlayerSummary;
+document.querySelectorAll("[data-ball]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,ballsDelta:Number(b.dataset.ball)});setMsg("playerMsg","Balls updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
+document.querySelectorAll("[data-cash]").forEach(b=>b.onclick=async()=>{const p=selected();if(!p)return;try{await hostReq("/api/host-player",{playerId:p.id,cashDelta:Number(b.dataset.cash)});setMsg("playerMsg","Cash updated.",true);await refresh()}catch(e){setMsg("playerMsg",e.message)}});
+$("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>Math.max(0,Number($("prize_"+i).value)||0));await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Prize board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
+$("saveStart").onclick=async()=>{try{await hostReq("/api/host-settings",{startingBalls:Math.max(0,Math.floor(Number($("startingBalls").value)||0))});await refresh()}catch(e){alert(e.message)}};
+$("classic").onclick=()=>renderPrizes([100,250,500,1000,2500,5000,2500,1000,500,250,100]);
+$("bigMoney").onclick=()=>renderPrizes([500,1000,2500,5000,10000,25000,10000,5000,2500,1000,500]);
+
+if(auth.code&&auth.token){openConsole();refresh()}
+setInterval(()=>{if(!document.hidden&&auth.token)refresh()},2000);
+</script>
+</body></html>
