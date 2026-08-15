@@ -51,7 +51,8 @@
 let session={code:localStorage.getItem("plinko_player_code")||"",token:localStorage.getItem("plinko_player_token")||""};
 let state=null,busy=false;
 const $=id=>document.getElementById(id);
-function money(n){return "$"+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2})}
+function safeNum(v,fallback=0){const n=Number(v);return Number.isFinite(n)?n:fallback}
+function money(n){return "$"+safeNum(n,0).toLocaleString(undefined,{maximumFractionDigits:2})}
 async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error||"Request failed");return j}
 function setMsg(text,good=false){$("playMsg").textContent=text;$("playMsg").className="muted status "+(good?"good":"bad")}
 
@@ -70,7 +71,7 @@ async function refresh(){
     if($("who")) $("who").textContent=state.player.name;
     if($("balls")) $("balls").textContent=state.player.balls;
     if($("cash")) $("cash").textContent=money(state.player.cash);
-    if($("ballValueDisplay")) $("ballValueDisplay").textContent=money(state.show.ball_value);
+    if($("ballValueDisplay")) $("ballValueDisplay").textContent=money(safeNum(state?.show?.ball_value,0));
   }catch(e){setMsg(e.message)}
 }
 
@@ -129,7 +130,8 @@ async function checkSettledBalls(){
         state.player=j.player;
         if($("cash")) $("cash").textContent=money(state.player.cash);
         if($("balls")) $("balls").textContent=state.player.balls;
-        show(`${Number(j.multiplier)}×  +${money(j.prize)}`);
+        const mult=safeNum(j.multiplier,0);
+        show(`${Number.isInteger(mult)?mult:Math.round(mult*100)/100}×  +${money(j.prize)}`);
       }catch(e){
         submittedDrops.delete(b.id);
         setMsg(e.message);
@@ -145,7 +147,10 @@ function loop(){
   for(const b of balls){
     if(b.active)HighNotesPlinkoPhysics.advanceRealTime(b);
   }
-  HighNotesPlinkoPhysics.drawBoard(ctx,balls,state?.show?.prizes);
+  const boardMultipliers=Array.isArray(state?.show?.prizes)
+    ? state.show.prizes.map(v=>safeNum(v,0))
+    : [0.2,0.5,1,2,5,10,5,2,1,0.5,0.2];
+  HighNotesPlinkoPhysics.drawBoard(ctx,balls,boardMultipliers);
   checkSettledBalls();
   requestAnimationFrame(loop);
 }

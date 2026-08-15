@@ -134,7 +134,8 @@
 let auth={code:localStorage.getItem("plinko_host_code")||"",token:localStorage.getItem("plinko_host_token")||""};
 let currentState=null;
 const $=id=>document.getElementById(id);
-function money(n){return "$"+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2})}
+function safeNum(v,fallback=0){const n=Number(v);return Number.isFinite(n)?n:fallback}
+function money(n){return "$"+safeNum(n,0).toLocaleString(undefined,{maximumFractionDigits:2})}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error||"Request failed");return j}
 async function hostReq(url,extra={}){return post(url,{code:auth.code,adminToken:auth.token,...extra})}
@@ -167,7 +168,7 @@ async function refresh(){
     currentState=await hostReq("/api/host-state");
     if($("showName")) $("showName").textContent=currentState.show.name;
     if($("startingBalls")) $("startingBalls").value=currentState.show.starting_balls;
-    if($("ballValue")) $("ballValue").value=currentState.show.ball_value;
+    if($("ballValue")) $("ballValue").value=safeNum(currentState?.show?.ball_value,100);
     renderPrizes(currentState.show.prizes);
     renderPlayers(currentState.players);
   }catch(e){
@@ -176,9 +177,13 @@ async function refresh(){
 }
 function renderPrizes(vals){
   const g=$("prizeGrid");g.innerHTML="";
-  vals.forEach((v,i)=>{
+  const safeVals=Array.isArray(vals)&&vals.length===11
+    ? vals.map(v=>safeNum(v,0))
+    : [0.2,0.5,1,2,5,10,5,2,1,0.5,0.2];
+
+  safeVals.forEach((v,i)=>{
     const d=document.createElement("div");
-    d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="0.1" value="${Number(v)}"><div class="muted" style="text-align:center;margin-top:4px">× multiplier</div>`;
+    d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="0.1" value="${v}"><div class="muted" style="text-align:center;margin-top:4px">× multiplier</div>`;
     g.appendChild(d)
   })
 }
@@ -313,7 +318,11 @@ $("zeroPlayer").onclick=async()=>{
   }catch(e){setMsg("playerMsg",e.message)}
 };
 
-$("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>Math.max(0,Math.round((Number($("prize_"+i).value)||0)*100)/100));await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Multiplier board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
+$("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>{
+    const el=$("prize_"+i);
+    const n=safeNum(el?.value,0);
+    return Math.max(0,Math.round(n*100)/100);
+  });await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Multiplier board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
 $("saveStart").onclick=async()=>{try{await hostReq("/api/host-settings",{startingBalls:Math.max(0,Math.floor(Number($("startingBalls").value)||0))});await refresh()}catch(e){alert(e.message)}};
 $("saveBallValue").onclick=async()=>{
   try{
@@ -392,7 +401,9 @@ async function refreshLive(){
     const midpoint=(before+after)/2;
     hostClockOffsetMs=new Date(j.serverNow).getTime()-midpoint;
 
-    livePrizes=j.show.prizes||livePrizes;
+    livePrizes=Array.isArray(j?.show?.prizes)&&j.show.prizes.length===11
+      ? j.show.prizes.map(v=>safeNum(v,0))
+      : livePrizes;
 
     for(const d of j.drops||[])ensureHostDrop(d);
 
