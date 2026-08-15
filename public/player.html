@@ -33,6 +33,15 @@
           <button id="dropBtn" class="primary" style="width:100%;font-size:18px">DROP BALL</button>
           <div id="playMsg" class="muted status">Click anywhere on the board to choose your drop point.</div>
         </div>
+
+        <div class="card">
+          <div class="label">Live Leaderboard</div>
+          <table>
+            <thead><tr><th>#</th><th>Player</th><th>Cash</th><th>Balls</th></tr></thead>
+            <tbody id="playerLeaderBody"></tbody>
+          </table>
+          <div class="muted status" id="leaderStatus">Updates automatically.</div>
+        </div>
       </aside>
     </div>
   </section>
@@ -78,7 +87,8 @@ async function startDrop(x=dropX){
   if(state.player.balls<=0){setMsg("You have no balls left.");return}
   busy=true;
   try{
-    const j=await post("/api/player-drop",{code:session.code,playerToken:session.token});
+    const normalizedStart=Math.max(0,Math.min(1,(x-dropMinX)/(dropMaxX-dropMinX)));
+    const j=await post("/api/player-drop",{code:session.code,playerToken:session.token,startX:normalizedStart});
     state.player=j.player;$("balls").textContent=state.player.balls;
     balls.push({id:j.dropId,x:Math.max(dropMinX,Math.min(dropMaxX,x)),y:55,vx:(Math.random()-.5)*.7,vy:.15,active:true,settleFrames:0});
     setMsg("Ball dropped — good luck!",true)
@@ -129,7 +139,24 @@ c.addEventListener("pointermove",e=>dropX=Math.max(dropMinX,Math.min(dropMaxX,pt
 c.addEventListener("pointerdown",e=>{dropX=Math.max(dropMinX,Math.min(dropMaxX,pt(e).x));startDrop(dropX)});
 $("dropBtn").onclick=()=>startDrop(dropX);
 
-if(session.code&&session.token){openGame();refresh()}
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function refreshLeaderboard(){
+  if(!session.code)return;
+  try{
+    const j=await post("/api/live-state",{code:session.code});
+    const body=$("playerLeaderBody");
+    body.innerHTML=(j.players||[]).slice().sort((a,b)=>Number(b.cash)-Number(a.cash)).map((p,i)=>
+      `<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${money(p.cash)}</td><td>${p.balls}</td></tr>`
+    ).join("");
+    $("leaderStatus").textContent="Live · updated just now";
+  }catch(e){
+    $("leaderStatus").textContent="Leaderboard reconnecting…";
+  }
+}
+
+if(session.code&&session.token){openGame();refresh();refreshLeaderboard()}
 setInterval(()=>{if(!document.hidden&&session.token)refresh()},2500);
+setInterval(()=>{if(!document.hidden&&session.code)refreshLeaderboard()},1000);
 </script>
 </body></html>

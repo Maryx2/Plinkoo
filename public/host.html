@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PLINKO! By High Notes — Host</title><link rel="stylesheet" href="/styles.css"></head>
+<title>PLINKO! By High Notes — Host</title><link rel="stylesheet" href="/styles.css"><script src="/live-board.js" defer></script></head>
 <body>
 <div class="shell">
   <header class="top">
@@ -35,6 +35,15 @@
             <div style="text-align:right"><div class="label">Show</div><div class="big" id="showName">—</div></div>
           </div>
           <div class="muted" style="margin-top:8px">Players go to <b>/player.html</b> and enter this room code.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="top">
+            <div><div class="label">Live Game</div><div class="big">Players Dropping Now</div></div>
+            <div class="muted">Updates automatically</div>
+          </div>
+          <canvas id="hostLiveBoard" width="760" height="820" style="margin-top:10px"></canvas>
+          <div id="liveStatus" class="muted status">Waiting for a player to drop a ball…</div>
         </div>
 
         <div class="card" style="margin-top:12px">
@@ -136,7 +145,31 @@ $("saveStart").onclick=async()=>{try{await hostReq("/api/host-settings",{startin
 $("classic").onclick=()=>renderPrizes([100,250,500,1000,2500,5000,2500,1000,500,250,100]);
 $("bigMoney").onclick=()=>renderPrizes([500,1000,2500,5000,10000,25000,10000,5000,2500,1000,500]);
 
-if(auth.code&&auth.token){openConsole();refresh()}
+
+let hostLiveBoard=null;
+let seenLiveDrops=new Set();
+
+async function refreshLive(){
+  if(!auth.code)return;
+  try{
+    const j=await post("/api/live-state",{code:auth.code});
+    if(!hostLiveBoard && $("hostLiveBoard")) hostLiveBoard=createLiveBoard($("hostLiveBoard"));
+    if(hostLiveBoard) hostLiveBoard.sync(j.drops,j.show.prizes);
+
+    const unsettled=(j.drops||[]).filter(d=>!d.settled);
+    const latest=(j.drops||[])[0];
+    $("liveStatus").textContent=unsettled.length
+      ? `${unsettled.length} live drop${unsettled.length===1?"":"s"} in progress`
+      : latest
+        ? `Latest: ${latest.player_name}${latest.settled&&latest.prize!==null?` won ${money(latest.prize)}`:""}`
+        : "Waiting for a player to drop a ball…";
+  }catch(e){
+    $("liveStatus").textContent="Live game connection retrying…";
+  }
+}
+
+if(auth.code&&auth.token){openConsole();refresh();setTimeout(refreshLive,150)}
 setInterval(()=>{if(!document.hidden&&auth.token)refresh()},2000);
+setInterval(()=>{if(!document.hidden&&auth.code)refreshLive()},500);
 </script>
 </body></html>
