@@ -146,14 +146,14 @@ window.HighNotesPlinkoPhysics = (() => {
       ctx.fillStyle="#eaf0ff";ctx.shadowColor="#9eb8ff";ctx.shadowBlur=7;ctx.fill();ctx.shadowBlur=0;
     }
 
-    const vals=prizes||[100,250,500,1000,2500,5000,2500,1000,500,250,100];
+    const vals=prizes||[0.2,0.5,1,2,5,10,5,2,1,0.5,0.2];
     for(let i=0;i<C.slots;i++){
-      const x=i*C.slotW,pr=Number(vals[i]||0);
-      ctx.fillStyle=pr>=2500?"#ffd84a33":pr>=1000?"#74a7ff20":"#ffffff10";
+      const x=i*C.slotW,m=Number(vals[i]||0);
+      ctx.fillStyle=m>=10?"#ffd84a33":m>=2?"#74a7ff20":m<1?"#ff667d18":"#ffffff10";
       ctx.fillRect(x+3,C.slotTop+8,C.slotW-6,70);
-      ctx.fillStyle=pr>=2500?"#ffe36b":"#fff";
-      ctx.font="900 15px system-ui";ctx.textAlign="center";
-      ctx.fillText("$"+Number(pr).toLocaleString(),x+C.slotW/2,C.slotTop+39);
+      ctx.fillStyle=m>=10?"#ffe36b":m<1?"#ff8fa0":"#fff";
+      ctx.font="900 17px system-ui";ctx.textAlign="center";
+      ctx.fillText(m+"×",x+C.slotW/2,C.slotTop+39);
     }
 
     for(let i=0;i<=C.slots;i++){

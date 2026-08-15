@@ -47,11 +47,11 @@
         </div>
 
         <div class="card" style="margin-top:12px">
-          <div class="top"><div><div class="label">Prize Board</div><div class="big">Cash Values</div></div>
-            <div class="row" style="flex:0 1 300px"><button id="classic" class="small">Classic</button><button id="bigMoney" class="small">Big Money</button></div>
+          <div class="top"><div><div class="label">Multiplier Board</div><div class="big">Odds / Multipliers</div></div>
+            <div class="row" style="flex:0 1 300px"><button id="classic" class="small">Balanced</button><button id="bigMoney" class="small">High Risk</button></div>
           </div>
           <div id="prizeGrid" class="prizeGrid" style="margin-top:12px"></div>
-          <button id="saveSettings" class="primary" style="width:100%;margin-top:10px">Save Prize Board</button>
+          <button id="saveSettings" class="primary" style="width:100%;margin-top:10px">Save Multiplier Board</button>
           <div id="settingsMsg" class="muted status"></div>
         </div>
       </div>
@@ -61,6 +61,13 @@
           <div class="label">Show Settings</div>
           <label class="muted">Starting balls for new players</label>
           <div class="row" style="margin-top:6px"><input id="startingBalls" type="number" min="0"><button id="saveStart">Save</button></div>
+
+          <div class="label" style="margin-top:12px">Value Per Ball</div>
+          <div class="row">
+            <input id="ballValue" type="number" min="0" step="1" placeholder="100">
+            <button id="saveBallValue">Save</button>
+          </div>
+          <div class="muted" style="margin-top:6px">Payout = ball value × multiplier.</div>
         </div>
 
         <div class="card">
@@ -155,6 +162,7 @@ async function refresh(){
     currentState=await hostReq("/api/host-state");
     $("showName").textContent=currentState.show.name;
     $("startingBalls").value=currentState.show.starting_balls;
+    $("ballValue").value=currentState.show.ball_value;
     renderPrizes(currentState.show.prizes);
     renderPlayers(currentState.players);
   }catch(e){
@@ -163,7 +171,11 @@ async function refresh(){
 }
 function renderPrizes(vals){
   const g=$("prizeGrid");g.innerHTML="";
-  vals.forEach((v,i)=>{const d=document.createElement("div");d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="50" value="${Number(v)}">`;g.appendChild(d)})
+  vals.forEach((v,i)=>{
+    const d=document.createElement("div");
+    d.innerHTML=`<label>Slot ${i+1}</label><input id="prize_${i}" type="number" min="0" step="0.1" value="${Number(v)}"><div class="muted" style="text-align:center;margin-top:4px">× multiplier</div>`;
+    g.appendChild(d)
+  })
 }
 function renderPlayers(players){
   const sel=$("playerSelect");
@@ -296,17 +308,23 @@ $("zeroPlayer").onclick=async()=>{
   }catch(e){setMsg("playerMsg",e.message)}
 };
 
-$("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>Math.max(0,Number($("prize_"+i).value)||0));await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Prize board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
+$("saveSettings").onclick=async()=>{try{const prizes=Array.from({length:11},(_,i)=>Math.max(0,Math.round((Number($("prize_"+i).value)||0)*100)/100));await hostReq("/api/host-settings",{prizes});setMsg("settingsMsg","Multiplier board saved.",true);await refresh()}catch(e){setMsg("settingsMsg",e.message)}};
 $("saveStart").onclick=async()=>{try{await hostReq("/api/host-settings",{startingBalls:Math.max(0,Math.floor(Number($("startingBalls").value)||0))});await refresh()}catch(e){alert(e.message)}};
-$("classic").onclick=()=>renderPrizes([100,250,500,1000,2500,5000,2500,1000,500,250,100]);
-$("bigMoney").onclick=()=>renderPrizes([500,1000,2500,5000,10000,25000,10000,5000,2500,1000,500]);
+$("saveBallValue").onclick=async()=>{
+  try{
+    await hostReq("/api/host-settings",{ballValue:Math.max(0,Number($("ballValue").value)||0)});
+    await refresh();
+  }catch(e){alert(e.message)}
+};
+$("classic").onclick=()=>renderPrizes([0.2,0.5,1,2,5,10,5,2,1,0.5,0.2]);
+$("bigMoney").onclick=()=>renderPrizes([0,0.2,0.5,1,3,25,3,1,0.5,0.2,0]);
 
 
 
 let liveBalls=[];
 let liveDropMap=new Map();
 let completedDropIds=new Set();
-let livePrizes=[100,250,500,1000,2500,5000,2500,1000,500,250,100];
+let livePrizes=[0.2,0.5,1,2,5,10,5,2,1,0.5,0.2];
 let hostClockOffsetMs=0;
 
 function ensureHostDrop(d){

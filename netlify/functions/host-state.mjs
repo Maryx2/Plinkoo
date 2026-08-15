@@ -29,6 +29,7 @@ export default async req=>{
         name:s.name,
         code:s.code,
         starting_balls:s.starting_balls,
+        ball_value:Number(s.ball_value||100),
         prizes:s.prizes
       },
       players:enriched

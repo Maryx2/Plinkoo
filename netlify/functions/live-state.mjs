@@ -47,7 +47,7 @@ export default async req=>{
 
     return json({
       serverNow:new Date().toISOString(),
-      show:{name:s.name,code:s.code,prizes:s.prizes},
+      show:{name:s.name,code:s.code,ball_value:Number(s.ball_value||100),prizes:s.prizes},
       players:enrichedPlayers,
       drops:liveDrops
     });

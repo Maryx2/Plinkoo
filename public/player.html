@@ -67,7 +67,10 @@ async function refresh(){
   if(!session.token)return;
   try{
     state=await post("/api/player-state",{code:session.code,playerToken:session.token});
-    $("who").textContent=state.player.name;$("balls").textContent=state.player.balls;$("cash").textContent=money(state.player.cash);
+    $("who").textContent=state.player.name;
+    $("balls").textContent=state.player.balls;
+    $("cash").textContent=money(state.player.cash);
+    $("ballValueDisplay").textContent=money(state.show.ball_value);
   }catch(e){setMsg(e.message)}
 }
 
@@ -126,7 +129,7 @@ async function checkSettledBalls(){
         state.player=j.player;
         $("cash").textContent=money(state.player.cash);
         $("balls").textContent=state.player.balls;
-        show("+"+money(j.prize));
+        show(`${Number(j.multiplier)}×  +${money(j.prize)}`);
       }catch(e){
         submittedDrops.delete(b.id);
         setMsg(e.message);
